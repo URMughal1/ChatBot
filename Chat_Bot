@@ -1,0 +1,106 @@
+'''
+Author:Umer Rehman
+Last Time changed: 04-10-2019
+'''
+import numpy
+import tflearn
+import tensorflow
+import random
+import json
+from datetime import datetime
+import nltk
+from nltk.stem.lancaster import LancasterStemmer
+stemmer = LancasterStemmer()
+
+# File Reading
+with open("Dialogue/Dialogue.json") as file:
+    data = json.load(file)
+
+All_Words = []
+All_Tags = []
+All_Trimed_Sentances = []
+Tag_wrt_Sentances = []
+#Excrecting the feature from the file line words, tags, Questions and Answer.
+for Section in data["Sections"]:
+    for pattern in Section["patterns"]:
+        Words_Token = nltk.word_tokenize(pattern)
+        All_Words.extend(Words_Token)
+        All_Trimed_Sentances.append(Words_Token)
+        Tag_wrt_Sentances.append(Section["tag"])
+    #print(All_Tags)
+    if Section["tag"] not in All_Tags:
+        All_Tags.append(Section["tag"])
+All_Words = [stemmer.stem(w.lower()) for w in All_Words if w != "?"]
+All_Words = sorted(list(set(All_Words)))
+All_Tags = sorted(All_Tags)
+
+#Preparing the Deap learning model
+X_Train = []
+Y_Train = []
+Output_Frame = [0 for _ in range(len(All_Tags))]
+for x, Sentences in enumerate(All_Trimed_Sentances):
+    print(Sentences)
+    Available_Words = []
+    Words_in_Sentences = [stemmer.stem(w.lower()) for w in Sentences]
+    for w in All_Words:
+        if w in Sentences:
+            Available_Words.append(1)
+        else:
+            Available_Words.append(0)
+    output_row = Output_Frame[:]
+    output_row[All_Tags.index(Tag_wrt_Sentances[x])] = 1
+    X_Train.append(Available_Words)
+    Y_Train.append(output_row)
+X_Train = numpy.array(X_Train)
+Y_Train = numpy.array(Y_Train)
+
+#Train the Deep Learning Model
+tensorflow.reset_default_graph()
+Network = tflearn.input_data(shape=[None, len(X_Train[0])])
+Network = tflearn.fully_connected(Network, 10)
+Network = tflearn.fully_connected(Network, 10)
+Network = tflearn.fully_connected(Network, len(Y_Train[0]), activation="softmax")
+Network = tflearn.regression(Network)
+
+model = tflearn.DNN(Network)
+model.fit(X_Train, Y_Train, n_epoch=1000, batch_size=5, show_metric=True)
+model.save("Model\model.tflearn")
+
+#Function for preprocessing the input string
+def Input_Sentance_Processing(s, All_Words):
+    Predicted_Frame = [0 for _ in range(len(All_Words))]
+    s_words = nltk.word_tokenize(s)
+    s_words = [stemmer.stem(word.lower()) for word in s_words]
+    for se in s_words:
+        for i, w in enumerate(All_Words):
+            if w == se:
+                Predicted_Frame[i] = 1
+    return numpy.array(Predicted_Frame)
+
+#Function to start the chatbot and saving the conversation file as Text
+def TracksBot():
+    # Converting datetime object to string
+    dateTimeObj = datetime.now()
+    timestampStr = dateTimeObj.strftime("%d-%b-%Y_(%H-%M-%S)")
+    write_to_text=open("Chat_History\\CH_"+timestampStr+".txt","w+")
+    write_to_text.write("Time: "+ timestampStr + " \n ")
+    write_to_text.write("I am Tracksbot (type Bye to stop)! " + " \n ")
+    print("I am Tracksbot (type Bye to stop)!")
+    while True:
+        Input_Sentence = input("You: ")
+        write_to_text.write("You: "+Input_Sentence+ " \n ")
+        if Input_Sentence.lower() == "bye":
+            break
+        results = model.predict([Input_Sentance_Processing(Input_Sentence, All_Words)])
+        results_index = numpy.argmax(results)
+        tag = All_Tags[results_index]
+        for tg in data["Sections"]:
+            if tg['tag'] == tag:
+                responses = tg['responses']
+        Res="TracksBot: " + random.choice(responses)
+        print(Res)
+        write_to_text.write("You: "+Res+ " \n ")
+    write_to_text.close()
+
+#Calling the function
+TracksBot()
